@@ -2,6 +2,7 @@ import random
 import os
 import argparse
 import time
+import json
 from vllm import LLM, SamplingParams
 from datetime import datetime
 from tqdm import tqdm
@@ -40,6 +41,7 @@ def parse_args():
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--use_safetensors", action="store_true")
     parser.add_argument("--num_shots", type=int, default=0)
+    parser.add_argument("--text_file", type=str, default="test.txt")
     parser.add_argument(
         "--apply_chat_template",
         action="store_true",
@@ -147,11 +149,19 @@ def setup(args):
             use_fast_tokenizer=True,
             use_safetensors=args.use_safetensors,
         )
-
-    # infer & eval
-    results = []
-    for data_name in data_list:
-        results.append(main(llm, tokenizer, data_name, args))
+    with open(args.text_file,'w',buffering=1) as f:
+        
+        # infer & eval
+        results = []
+        for data_name in data_list:
+            single_result = main(llm, tokenizer, data_name, args)
+            tmp = {"first_round":single_result['first_round'],
+                   "w2c":single_result['w2c'],
+                   "c2w":single_result['c2w'],
+                   "second_round":single_result['acc']}
+            print(tmp)
+            f.write(json.dumps(tmp)+"\n")
+            results.append(single_result)
 
     # add "avg" result to data_list and results
     data_list.append("avg")
@@ -162,9 +172,10 @@ def setup(args):
     )
 
     # print all results
-    pad = max([len(data_name) for data_name in data_list])
-    print("\t".join(data_name.ljust(pad, " ") for data_name in data_list))
-    print("\t".join([f"{result['acc']:.1f}".ljust(pad, " ") for result in results]))
+    # print(results)
+    # pad = max([len(data_name) for data_name in data_list])
+    # print("\t".join(data_name.ljust(pad, " ") for data_name in data_list))
+    # print("\t".join([f"{result['acc']:.1f}".ljust(pad, " ") for result in results]))
 
 
 def is_multi_choice(answer):
@@ -366,11 +377,16 @@ def main(llm, tokenizer, data_name, args):
         codes.append(code)
 
     # extract preds
+    results_first_box = [
+        run_execute2(executor, code, args.prompt_type, data_name) for code in codes
+    ]
     results = [
         run_execute(executor, code, args.prompt_type, data_name) for code in codes
     ]
     time_use = time.time() - start_time
 
+    import copy
+    samples2 = copy.deepcopy(samples)
     # put results back to examples
     all_samples = []
     for i, sample in enumerate(samples):
@@ -397,6 +413,31 @@ def main(llm, tokenizer, data_name, args):
         sample.update({"code": code, "pred": preds, "report": reports})
         all_samples.append(sample)
 
+    all_samples_2 = []
+    for i, sample in enumerate(samples2):
+        code = codes[i * args.n_sampling : (i + 1) * args.n_sampling]
+        result_first_box = results_first_box[i * args.n_sampling : (i + 1) * args.n_sampling]
+        preds = [item[0] for item in result_first_box]
+        reports = [item[1] for item in result_first_box]
+        for j in range(len(preds)):
+            if sample["gt"] in ["A", "B", "C", "D", "E"] and preds[j] not in [
+                "A",
+                "B",
+                "C",
+                "D",
+                "E",
+            ]:
+                preds[j] = choice_answer_clean(code[j])
+            elif is_multi_choice(sample["gt"]) and not is_multi_choice(preds[j]):
+                # remove any non-choice char
+                preds[j] = "".join(
+                    [c for c in preds[j] if c in ["A", "B", "C", "D", "E"]]
+                )
+
+        sample.pop("prompt")
+        sample.update({"code": code, "pred": preds, "report": reports})
+        all_samples_2.append(sample)
+        
     # add processed samples
     all_samples.extend(processed_samples)
     all_samples, result_json = evaluate(
@@ -405,7 +446,35 @@ def main(llm, tokenizer, data_name, args):
         prompt_type=args.prompt_type,
         execute=True,
     )
-
+    #print(all_samples[0]['idx'])
+    all_samples_2.extend(processed_samples)
+    #print(len(all_samples_2))
+    # for sample in all_samples_2:
+    #     print(sample)
+    all_samples_2, result_json_2 = evaluate(
+        samples=all_samples_2,
+        data_name=data_name,
+        prompt_type=args.prompt_type,
+        execute=True,
+    )
+    
+    ##sorting
+    
+    judge_list1 = result_json_2['judge_list']
+    judge_list2 = result_json['judge_list']
+    
+    w2c = 0
+    c2w = 0
+    for i in range(len(judge_list1)):
+        if judge_list1[i] and (not judge_list2[i]):
+            c2w += 1
+        elif (not judge_list1[i]) and judge_list2[i]:
+            w2c += 1
+    w2c = w2c*100/len(judge_list1)
+    c2w = c2w*100/len(judge_list1)
+    result_json['w2c'] = w2c
+    result_json['c2w'] = c2w
+    result_json['first_round'] = result_json_2['acc']
     # save outputs
     if len(processed_samples) < len(all_samples) and args.save_outputs:
         save_jsonl(all_samples, out_file)
@@ -419,6 +488,8 @@ def main(llm, tokenizer, data_name, args):
         out_file.replace(".jsonl", f"_metrics.json"), "w"
     ) as f:
         json.dump(result_json, f, indent=4)
+        
+    result_json.pop("judge_list")
     return result_json
 
 

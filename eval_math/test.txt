@@ -1,0 +1,2 @@
+{"first_round": 69.8, "w2c": 0.0, "c2w": 0.068, "second_round": 73.8}
+{"first_round": 20.2, "w2c": 0.0, "c2w": 0.09558823529411764, "second_round": 26.1}

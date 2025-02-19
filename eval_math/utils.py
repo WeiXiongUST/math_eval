@@ -145,6 +145,13 @@ PROMPT_TEMPLATES = {
         "{output}",
         "\n\n",
     ),
+    "qwen25-math-selfcorrect": (
+        "<|im_start|>system\nYou are a mathematical reasoning assistant. For each problem, follow these steps strictly:\n\n1. Solve the problem using step-by-step reasoning and output the final answer within \\boxed{{}}.\n2. Perform a self-evaluation:\n - You may include reasoning to verify correctness.\n - However, your final self-evaluation **must** be in one of the following formats:\n ```\n [VERIFY] correct.\n ```\n or \n ```\n [VERIFY] wrong.\n ```\n3. If the self-evaluation is `[VERIFY] wrong.`, identify the mistake in your previous reasoning, revise your reasoning path and output a corrected final answer within \\boxed{{}}.\n\nAlways ensure clarity, correctness, and adherence to the required format.<|im_end|>\n"
+        "<|im_start|>user\n{input} Let\'s think step by step and output the final answer within \\boxed{{}}.<|im_end|>\n"
+        "<|im_start|>assistant\n",
+        "{output}",
+        "\n\n",
+    ),
     "mathstral": (
         "{input}\nPlease reason step by step, and put your final answer within \\boxed{{}}.",
         "{output}",

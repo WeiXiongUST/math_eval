@@ -63,19 +63,24 @@ def evaluate(data_name, prompt_type, samples: list=None, file_path: str=None, ma
     max_len = max([len(s) for s in score_mat])
 
     for i, s in enumerate(score_mat):
-        if len(s) < max_len:
+        #print(s)
+        if not len(s):
+            score_mat[i] = [False] * max_len
+        elif len(s) < max_len:
             score_mat[i] = s + [s[-1]] * (max_len - len(s)) # pad
 
     # output mean of each column of scores
     col_means= np.array(score_mat).mean(axis=0)
     mean_score = list(np.round(col_means * 100, decimals=1))
 
+    judge_list = [s[0] for s in score_mat]
     result_json = {
         "num_samples": len(samples),
         "num_scores": len(scores),
         "timeout_samples": timeout_cnt,
         "empty_samples": len([s for s in samples if not s['pred'][-1]]),
-        "acc": mean_score[0]
+        "acc": mean_score[0],
+        "judge_list": judge_list
     }
 
     # each type score
@@ -89,7 +94,7 @@ def evaluate(data_name, prompt_type, samples: list=None, file_path: str=None, ma
         type_scores = {k: v for k, v in sorted(type_scores.items(), key=lambda item: item[0])}
         result_json['type_acc'] = type_scores
 
-    print(result_json)
+    #print(result_json)
     return samples, result_json
 
 
