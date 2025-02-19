@@ -155,7 +155,8 @@ def setup(args):
         results = []
         for data_name in data_list:
             single_result = main(llm, tokenizer, data_name, args)
-            tmp = {"first_round":single_result['first_round'],
+            tmp = {"dataset":data_name,
+                   "first_round":single_result['first_round'],
                    "w2c":single_result['w2c'],
                    "c2w":single_result['c2w'],
                    "second_round":single_result['acc']}
