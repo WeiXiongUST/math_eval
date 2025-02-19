@@ -15,7 +15,7 @@ pip install transformers==4.45.0
 You can evaluate Qwen2.5/Qwen2-Math-Instruct series model with the following command:
 ```bash
 # Qwen2.5-Math-Instruct Series
-PROMPT_TYPE="qwen25-math-cot"
+PROMPT_TYPE="qwen25-math-selfcorrect"
 OUTPUT_TXT="test123.txt"
 
 # Qwen2.5-Math-1.5B-Instruct
