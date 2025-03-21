@@ -6,9 +6,9 @@ conda activate math_eval
 cd latex2sympy
 pip install -e .
 cd ..
-pip install vllm==0.5.1 --no-build-isolation
+pip install vllm==0.6.3 --no-build-isolation
 pip install -r requirements.txt 
-pip install transformers==4.45.0
+pip install transformers==4.48.1
 ```
 
 ### Evaluation
