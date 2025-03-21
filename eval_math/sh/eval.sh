@@ -18,10 +18,10 @@ python3 -u math_eval.py \
     --split ${SPLIT} \
     --prompt_type ${PROMPT_TYPE} \
     --num_test_sample ${NUM_TEST_SAMPLE} \
-    --max_tokens_per_call 3000 \
+    --max_tokens_per_call 4096 \
     --seed 0 \
-    --temperature 0 \
-    --n_sampling 1 \
+    --temperature 1.0 \
+    --n_sampling 8 \
     --top_p 1 \
     --start 0 \
     --end -1 \
