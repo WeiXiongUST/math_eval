@@ -173,7 +173,7 @@ PROMPT_TEMPLATES = {
         '[Round 0] USER:\n{input}\nPlease reason step by step, and put your final answer within \\boxed{{}}. ASSISTANT:\n',
         "{output}",
         "\n\n"
-    )
+    ),
     "llama": (
         "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nCutting Knowledge Date: December 2023\nToday Date: 26 Jul 2024\n\n<|eot_id|>"
         "<|start_header_id|>user<|end_header_id|>\n\n{input} Let\'s think step by step and output the final answer within \\boxed{{}}.<|eot_id|>"
