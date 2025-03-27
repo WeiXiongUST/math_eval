@@ -1,133 +1,97 @@
 """
-This scrip evaluates the math data to check their correctiveness.
+This scrip support is adapted from Tora project to annotate the mathematical reasoning data.
 """
+from datasets import load_dataset, Dataset, DatasetDict
+
 import argparse
-import numpy as np
+import os
+import random
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
+from datasets import load_dataset
+import requests
+from eval.evaluate import evaluate
+from eval.evaluate import get_batch_scores
 from tqdm import tqdm
-from pebble import ProcessPool
-from concurrent.futures import TimeoutError
-
-from eval.grader import *
+from utils.data_loader import load_data
 from utils.parser import *
-from utils.utils import load_jsonl
 from utils.python_executor import PythonExecutor
+from utils.utils import construct_prompt, load_jsonl, save_jsonl, set_seed
 
 
-def evaluate(data_name, prompt_type, samples: list=None, file_path: str=None, execute=False):
-    assert samples or file_path, "samples or file_path must be provided"
-    if not samples:
-        samples = list(load_jsonl(file_path))
-    # dedup by idx
-    if 'idx' in samples[0]:
-        samples = {sample['idx']: sample for sample in samples}.values()
-        samples = sorted(samples, key=lambda x: x['idx']) 
-    else:
-        samples = [dict(idx=idx, **sample) for idx, sample in enumerate(samples)]
-    
-    # parse gt if not in the dataset
-    if 'gt' in samples[0]:
-        pass
-    else:
-        for sample in samples:
-            sample['gt_cot'], sample['gt'] = parse_ground_truth(sample, data_name)
+import json
+import os
+from dataclasses import dataclass, field
+from typing import Optional
+import numpy as np
+import torch
+from datasets import load_dataset
+from tqdm import tqdm
+from transformers import AutoTokenizer, HfArgumentParser, pipeline
+from accelerate import Accelerator
 
-    # execute
-    if ('pred' not in samples[0]) or execute:
-        if "pal" in prompt_type:
-            executor = PythonExecutor(get_answer_expr="solution()")
-        else:
-            executor = PythonExecutor(get_answer_from_stdout=True)
+tqdm.pandas()
 
-        for sample in tqdm(samples, desc="Execute"):
-            sample['pred'] = []
-            sample['report'] = []
-            for code in sample['code']:
-                pred, report = run_execute(executor, code, prompt_type, execute=True)
-                sample['pred'].append(pred)
-                sample['report'].append(report)
-
-    params = [(idx, pred, sample['gt']) for idx, sample in enumerate(samples) for pred in sample['pred']]
-
-    scores = []
-    timeout_cnt = 0 
-
-    with ProcessPool() as pool:
-        future = pool.map(math_equal_process, params, timeout=10)
-        iterator = future.result()
-        with tqdm(total=len(samples), desc="Evaluate") as progress_bar:
-            while True:
-                try:
-                    result = next(iterator)
-                    scores.append(result)
-                except StopIteration:
-                    break
-                except TimeoutError as error:
-                    print(error)
-                    scores.append(False)
-                    timeout_cnt += 1
-                except Exception as error:
-                    print(error.traceback)
-                    exit()
-                progress_bar.update(1) 
-
-    idx = 0
-    score_mat = []
-    for sample in samples:
-        sample['score'] = scores[idx: idx+len(sample['pred'])]
-        assert len(sample['score']) == len(sample['pred'])
-        score_mat.append(sample['score'])
-        idx += len(sample['pred'])
-
-    max_len = max([len(s) for s in score_mat])
-
-    for i, s in enumerate(score_mat):
-        if len(s) < max_len:
-            score_mat[i] = s + [s[-1]] * (max_len - len(s)) # pad
-
-    # output mean of each column of scores
-    col_means= np.array(score_mat).mean(axis=0)
-    mean_score = list(np.round(col_means * 100, decimals=1))
-
-    result_str = f"Num samples: {len(samples)}\n" \
-        f"Num scores: {len(scores)}\n" \
-        f"Timeout samples: {timeout_cnt}\n" \
-        f"Empty samples: {len([s for s in samples if not s['pred'][-1]])}\n" \
-        f"Mean score: {mean_score}\n"
-
-    # each type score
-    if "type" in samples[0]:
-        type_scores = {}
-        for sample in samples:
-            if sample['type'] not in type_scores:
-                type_scores[sample['type']] = []
-            type_scores[sample['type']].append(sample['score'][-1])
-        type_scores = {k: np.round(np.array(v).mean() * 100, decimals=1) for k, v in type_scores.items()}
-        type_scores = {k: v for k, v in sorted(type_scores.items(), key=lambda item: item[0])}
-        result_str += f"Type scores: {type_scores}\n"
-
-    print(result_str)
-    return result_str, samples
+#####
+# This script takes a dataset as the input, where each sample is {"prompt": "the pormpt", "responses": ["response1", "response2", "response3", ...]}
+# The script will compute the reward for each input-output pair, and eventually output a new dataset, where each sample contains {"prompt": "the pormpt", "responses": ["response1", "response2", "response3", ...], "rewards": [reward1, reward2, ...]}
+#####
 
 
-def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--data_name", type=str, default="math")
-    parser.add_argument("--prompt_type", type=str, default="tora")
-    parser.add_argument("--file_path", type=str, default=None, required=True)
-    parser.add_argument("--max_num_samples", type=int, default=None)
-    parser.add_argument("--execute", action="store_true")
-    parser.add_argument("--output_dir", type=str, default=None, required=True)
-    args = parser.parse_args()
-    return args
+@dataclass
+class ScriptArguments:
+    """
+    The arguments for the DPO training script.
+    """
 
-# data_name='gsm8k'
-# prompt_type = 'cot' / 'tora'
-# 
-args = parse_args()
-eval_result, all_samples = evaluate(data_name=args.data_name, prompt_type=args.prompt_type, file_path=args.file_path, execute=args.execute)
+    dataset_name_or_path: Optional[str] = field(
+        default="xxx",
+        metadata={"help": "the location of the dataset name or path"},
+    )
+    output_dir: Optional[str] = field(
+        default="yyy",
+        metadata={"help": "the location of the output file"},
+    )
 
-with open(args.output_dir, "w", encoding="utf8") as f:
-    for i in range(len(all_samples)):
-        json.dump(all_samples[i], f, ensure_ascii=False)
+
+parser = HfArgumentParser(ScriptArguments)
+script_args = parser.parse_args_into_dataclasses()[0]
+ds = load_dataset(script_args.dataset_name_or_path, split="train")
+
+remain_codes = []
+remain_gts = []
+all_samples = []
+for sample in ds:
+    remain_codes.append(sample['responses'])
+    remain_gts.append(sample['gt'])    
+    all_samples.append(sample)
+
+print(remain_codes[0])
+
+all_rm_scores, all_preds = get_batch_scores(remain_codes, remain_gts)
+
+all_data = []
+
+for i, sample in enumerate(all_samples):
+    sample.update({"rewards": all_rm_scores[i], "all_preds": all_preds[i]})
+    all_data.append(sample)
+
+'''
+import numpy as np
+print(np.mean([sam['rewards'] for sam in all_data]))
+keys = all_data[0].keys()  
+
+dict_data = {key: [d[key] for d in all_data] for key in keys}
+output_dir = script_args.output_dir
+
+dataset = Dataset.from_dict(dict_data)
+DatasetDict({'train': dataset}).push_to_hub(output_dir)
+'''
+
+
+
+with open(script_args.output_dir, "w", encoding="utf8") as f:
+    for i in range(len(all_data)):
+        json.dump(all_data[i], f, ensure_ascii=False)
         f.write('\n')
-
