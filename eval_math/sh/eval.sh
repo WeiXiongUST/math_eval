@@ -20,8 +20,8 @@ python3 -u math_eval.py \
     --num_test_sample ${NUM_TEST_SAMPLE} \
     --max_tokens_per_call 4096 \
     --seed 0 \
-    --temperature 1.0 \
-    --n_sampling 8 \
+    --temperature 0.0 \
+    --n_sampling 1 \
     --top_p 1 \
     --start 0 \
     --end -1 \
